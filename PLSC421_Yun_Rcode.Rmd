@@ -1,0 +1,116 @@
+---
+title: "R code"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r message=FALSE, warning=FALSE}
+#load data and packages
+library(tidyverse)
+library(plm)
+library(Stat2Data)
+library(mosaic)
+library(ggformula)
+library(Lock5Data)
+library(tinytex)
+library(car)
+library(stargazer)
+
+
+
+worldbank<-read.csv("https://raw.githubusercontent.com/Migueldesanta/plsc421/main/worldbank.csv")
+polity<-read.csv("https://raw.githubusercontent.com/Migueldesanta/plsc421/main/p5v2018.csv")
+#Data Wrangling
+# Pivot the data from long to wide format, ensuring each row corresponds to a single country
+worldbank_long <- worldbank %>%
+  pivot_longer(
+    cols = matches("^X\\d{4}\\.\\.YR\\d{4}\\.$"), 
+    names_to = "Year",
+    values_to = "Value",
+    names_pattern = "X(\\d{4})\\.\\.YR\\d{4}\\.$"  
+  )
+
+# Spread 'Series.Name' into separate columns and then rename those columns
+worldbank_wide <- worldbank_long %>%
+  pivot_wider(
+    names_from = Series.Name,
+    values_from = Value,
+    id_cols = c(Country.Name, Year)
+  )%>%
+  rename(
+    Exchangerate = `Official exchange rate (LCU per US$, period average)`,
+    Marketsize = `GDP, PPP (current international $)`,
+    Economicdevelopment = `GDP per capita, PPP (current international $)`,
+    Economicgrowth = `GDP growth (annual %)`,
+    FDI = `Foreign direct investment, net inflows (BoP, current US$)`,
+    Fiscal = `Total tax and contribution rate (% of profit)`,
+    Impediments = `Ease of doing business score (0 = lowest performance to 100 = best performance)`
+  ) %>%
+  # Filter out the data for the year 2019
+  filter(Year != "2019") %>%
+  # Ensure Year is numeric
+  mutate(
+    Year = as.numeric(Year),
+    Marketsize = as.numeric(Marketsize),
+    Economicdevelopment = as.numeric(Economicdevelopment),
+    Economicgrowth = as.numeric(Economicgrowth),
+    FDI = as.numeric(FDI),
+    Fiscal = as.numeric(Fiscal),
+    Impediments = as.numeric(Impediments),
+    Exchangerate=as.numeric(Exchangerate)
+   
+  )%>%
+  # Drop rows with any NA values
+  drop_na()
+# Subset and rename the columns of polity
+polity_subset <- polity %>%
+  filter(year >= 2015, year <= 2018) %>%  # Filter years from 2015 to 2018
+  select(
+    Country.Name = country,  # Rename scode to Country.Code
+    Polity2 = polity2,     # Rename polity2 to Polity2
+    Year = year            # Rename year to Year
+  )
+# Merge the datasets using 'Country.Code' and 'Year' as keys
+merged_data <- inner_join(worldbank_wide, polity_subset, by = c("Country.Name", "Year"))%>%
+  # Drop rows with any NA values
+mutate( # Take the logarithm and create new variables
+    Log_Marketsize = log(Marketsize),
+    Log_Economicdevelopment = log(Economicdevelopment),
+    Log_Fiscal=log(Fiscal),
+    Log_Exchangerate=log(Exchangerate),
+    FDI=FDI/1000000000)%>%
+  # Drop rows with any NA values
+  drop_na()
+
+final_data <- merged_data %>%
+  select(Country.Name, Year, Log_Marketsize, Log_Economicdevelopment,  
+          Log_Fiscal, Log_Exchangerate, Polity2, Economicgrowth,FDI,Impediments)
+```
+
+```{r}
+#Model Fitting
+#Model 1:Independent Variables Only
+model1<-lm(FDI~Polity2+Log_Fiscal+Impediments, data =final_data)
+summary(model1)
+
+```
+```{r}
+#Model 2: Dependent variables Only
+model2<-lm(FDI~Log_Marketsize+Log_Economicdevelopment+Economicgrowth+Log_Exchangerate,data=final_data)
+summary(model2)
+```
+```{r}
+#Model 3: Full Model
+model3<-lm(FDI~Polity2+Log_Fiscal+Impediments+Log_Marketsize+Log_Economicdevelopment+Economicgrowth+Log_Exchangerate,data=final_data)
+summary(model3)
+```
+```{r warning=FALSE}
+#regression table
+stargazer(model1, model2, model3, 
+          type = "text", 
+          dep.var.labels = "FDI inflows", covariate.labels =c("Regime Type", "Fiscal Incentives(log)", "Regulatory Impediments","Market Size(log)","Economic Development(log)","Economic Growth","Exchange Rate(log)"),
+          title = "Figure 1. Regression Results of FDI Inflows Across Models")
+```
+
+
+
